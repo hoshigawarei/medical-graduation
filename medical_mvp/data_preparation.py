@@ -169,6 +169,19 @@ def stream_pmc_vqa_and_build_database(
     with open(out_json, "w", encoding="utf-8") as f:
         json.dump(records, f, ensure_ascii=False, indent=2)
 
+    n_nonempty = sum(1 for r in records if (r.get("image_path") or "").strip())
+    n_on_disk = sum(
+        1 for r in records if r.get("image_path") and Path(r["image_path"]).is_file()
+    )
+    print(
+        f"[data] 写入 {out_json} | 条数={len(records)} | image_path 非空={n_nonempty} | 磁盘可访问={n_on_disk}"
+    )
+    if n_on_disk == 0 and records:
+        print(
+            "[data][WARN] 未检测到可访问的图像文件。若你刚升级过代码，请确认已 git pull 且本机 medical_mvp/data_preparation.py 含占位图逻辑；"
+            "或检查 MEDICAL_MVP_DATA_ROOT 是否指向可写目录。"
+        )
+
     return out_json
 
 
