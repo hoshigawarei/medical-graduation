@@ -111,10 +111,20 @@ class VisionAgent(BaseAgent):
                 prompt,
             ]
 
-        response = self._client.models.generate_content(
-            model=config.GEMINI_MODEL_ID,
-            contents=contents,
-        )
+        try:
+            response = self._client.models.generate_content(
+                model=config.GEMINI_MODEL_ID,
+                contents=contents,
+            )
+        except Exception as e:
+            msg = str(e).lower()
+            if "leaked" in msg or "permission_denied" in msg or "403" in str(e):
+                raise RuntimeError(
+                    "Gemini 返回 403：该 API 密钥可能被判定为泄露或已失效。"
+                    "请到 https://aistudio.google.com/apikey 删除旧密钥并新建，"
+                    "在 Colab「密钥」中更新 GOOGLE_API_KEY；切勿在聊天、截图或 Git 中粘贴密钥。"
+                ) from e
+            raise
         text = (response.text or "").strip()
         self.trace("影像推理完成。")
         return text
