@@ -1,0 +1,39 @@
+# 环境与密钥（切勿提交）
+.env
+.env.*
+*.pem
+secrets.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+*.so
+.venv/
+venv/
+ENV/
+
+# 工具与 IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Jupyter
+.ipynb_checkpoints/
+
+# 毕设数据与索引（大文件、走 Drive，不走 Git）
+data/
+*.index
+faiss_meta.json
+qa_database.json
+
+# 常见下载/缓存
+.cache/
+models--*/
+
+# 日志与临时文件
+*.log
+tmp/
+temp/

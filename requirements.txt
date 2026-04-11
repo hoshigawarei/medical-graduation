@@ -1,0 +1,8 @@
+# MVP 骨架依赖（Google Colab: pip install -r requirements.txt）
+google-genai>=1.0.0
+datasets>=2.19.0
+sentence-transformers>=2.7.0
+faiss-cpu>=1.8.0
+Pillow>=10.0.0
+numpy>=1.24.0
+tqdm>=4.66.0
