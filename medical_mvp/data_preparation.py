@@ -132,7 +132,8 @@ def stream_pmc_vqa_and_build_database(
         out_img = img_dir / safe_name
         image_path_str = ""
 
-        # 优先使用 HF Image 列；保存失败时仍保留 QA 文本以便检索测试
+        # 优先使用 HF Image 列。流式读取 xmcmic/PMC-VQA 时常见仅有 CSV 元数据、无 image 列，
+        # 此时写一张占位 JPEG，便于 Vision 多模态链路跑通；若已下载完整 images.zip 可自行替换为真实图。
         image_obj = row.get("image")
         if image_obj is not None:
             try:
@@ -140,6 +141,14 @@ def stream_pmc_vqa_and_build_database(
                 image_path_str = str(out_img.resolve())
             except Exception as exc:  # noqa: BLE001
                 print(f"[WARN] 样本 {idx} 图像保存失败，将仅保留文本元数据: {exc}")
+        else:
+            try:
+                from PIL import Image
+
+                Image.new("RGB", (256, 256), (96, 96, 96)).save(out_img, format="JPEG", quality=85)
+                image_path_str = str(out_img.resolve())
+            except Exception as exc:  # noqa: BLE001
+                print(f"[WARN] 样本 {idx} 占位图写入失败: {exc}")
 
         record = {
             "id": idx,

@@ -35,15 +35,26 @@ def run_random_samples(
 
     records = _load_records(qa_path)
     with_img = [r for r in records if r.get("image_path") and Path(r["image_path"]).is_file()]
-    if len(with_img) < n:
+    rng = random.Random(seed)
+
+    if len(with_img) >= n:
+        chosen = rng.sample(with_img, n)
+    elif with_img:
         print(
             f"可用带图样本仅 {len(with_img)} 条，将使用全部可用样本运行测试。",
             file=sys.stderr,
         )
         chosen = with_img
     else:
-        rng = random.Random(seed)
-        chosen = rng.sample(with_img, n)
+        # 无落盘图像时仍跑通工作流：VisionAgent 会退化为仅文本+RAG（见 agents.VisionAgent）
+        print(
+            "未找到有效 image_path 文件，将随机抽取文本 QA 样本（无真实影像输入）。",
+            file=sys.stderr,
+        )
+        if not records:
+            print("qa_database.json 为空，退出。", file=sys.stderr)
+            return
+        chosen = rng.sample(records, min(n, len(records)))
 
     for i, rec in enumerate(chosen, start=1):
         print(f"\n>>>>>>>>>> 样本 {i}/{len(chosen)} | id={rec.get('id')} <<<<<<<<<<\n")
