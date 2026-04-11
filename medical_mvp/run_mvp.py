@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import random
 import sys
 from pathlib import Path
@@ -28,10 +29,29 @@ def run_random_samples(
     qa_path: Path | None = None,
     seed: int | None = 42,
 ) -> None:
-    qa_path = qa_path or config.get_qa_database_path()
+    # 与 Phase 1 使用同一规则：优先显式 qa_path，否则用 MEDICAL_MVP_DATA_ROOT（须与挂载格一致）
+    qa_path = Path(qa_path) if qa_path is not None else config.get_qa_database_path()
+
     if not qa_path.is_file():
-        print("未找到 qa_database.json，先执行 Phase 1 数据准备…", file=sys.stderr)
+        dr = (os.environ.get("MEDICAL_MVP_DATA_ROOT") or "").strip()
+        if dr:
+            alt = Path(dr) / "qa_database.json"
+            if alt.is_file():
+                qa_path = alt
+
+    if not qa_path.is_file():
+        print(
+            f"未找到 qa_database.json（当前查找: {qa_path}）。"
+            "若你已在 Google Drive 生成过数据，请先运行「挂载 Drive」那一格，确保已设置环境变量 "
+            "MEDICAL_MVP_DATA_ROOT 指向与 Phase 1 相同的目录；否则将在仓库下 ./data 自动执行 Phase 1…",
+            file=sys.stderr,
+        )
         stream_pmc_vqa_and_build_database(limit=200)
+        qa_path = config.get_qa_database_path()
+
+    if not qa_path.is_file():
+        print(f"[ERR] Phase 1 执行后仍找不到: {qa_path}", file=sys.stderr)
+        return
 
     records = _load_records(qa_path)
     with_img = [r for r in records if r.get("image_path") and Path(r["image_path"]).is_file()]
