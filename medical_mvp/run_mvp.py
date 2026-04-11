@@ -54,14 +54,20 @@ def run_random_samples(
         return
 
     records = _load_records(qa_path)
+    nonempty = sum(1 for r in records if (r.get("image_path") or "").strip())
     with_img = [r for r in records if r.get("image_path") and Path(r["image_path"]).is_file()]
     rng = random.Random(seed)
 
+    print(
+        f"[run_mvp] qa_path={qa_path} 条数={len(records)} image_path非空={nonempty} 磁盘可读图={len(with_img)}",
+        file=sys.stderr,
+    )
+
     if len(with_img) >= n:
         chosen = rng.sample(with_img, n)
-    elif with_img:
+    elif len(with_img) > 0:
         print(
-            f"可用带图样本仅 {len(with_img)} 条，将使用全部可用样本运行测试。",
+            f"可用带图样本仅 {len(with_img)} 条（少于 n={n}），将全部用于测试。",
             file=sys.stderr,
         )
         chosen = with_img
