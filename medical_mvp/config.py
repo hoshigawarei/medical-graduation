@@ -15,7 +15,9 @@ GEMINI_MODEL_ID = "gemini-2.5-flash"
 GOOGLE_API_KEY_ENV = "GOOGLE_API_KEY"
 
 # HuggingFace 数据集
-PMC_VQA_DATASET = "xmcmic/PMC-VQA"
+# 默认使用社区重构的流式友好版，image 列可直接读取为真实图像（PIL Image）。
+# 若需回退原版，可改回 "xmcmic/PMC-VQA"。
+PMC_VQA_DATASET = "hamzamooraj99/PMC-VQA-1"
 PMC_VQA_STREAM_SPLIT = "train"  # 与仓库中 train 划分一致；若不存在可改为 "test"
 
 # 向量检索
