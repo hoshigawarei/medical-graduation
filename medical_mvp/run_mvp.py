@@ -8,6 +8,7 @@ Phase 5: 运行测试
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
 import os
 import random
@@ -22,6 +23,27 @@ from medical_mvp.workflow import clinical_workflow
 def _load_records(path: Path) -> list[dict]:
     with open(path, encoding="utf-8") as f:
         return json.load(f)
+
+
+def _to_jsonable_workflow_output(out: dict) -> dict:
+    """将 clinical_workflow 输出转换为可 JSON 序列化结构。"""
+    hits = out.get("retrieval_hits", [])
+    hits_json = []
+    for h in hits:
+        # RetrievalHit 为 dataclass，这里显式展开，避免 json.dump 失败。
+        hits_json.append(
+            {
+                "score": float(getattr(h, "score", 0.0)),
+                "text": str(getattr(h, "text", "")),
+                "meta": getattr(h, "meta", {}),
+            }
+        )
+    return {
+        "retrieval_hits": hits_json,
+        "vision_report": out.get("vision_report", ""),
+        "analysis_report": out.get("analysis_report", ""),
+        "risk": out.get("risk", {}),
+    }
 
 
 def run_random_samples(
@@ -82,6 +104,9 @@ def run_random_samples(
             return
         chosen = rng.sample(records, min(n, len(records)))
 
+    run_started_at = dt.datetime.now(dt.timezone.utc)
+    sample_reports: list[dict] = []
+
     for i, rec in enumerate(chosen, start=1):
         print(f"\n>>>>>>>>>> 样本 {i}/{len(chosen)} | id={rec.get('id')} <<<<<<<<<<\n")
         q = str(rec.get("question", ""))
@@ -92,6 +117,36 @@ def run_random_samples(
         print("分析结论（透传影像报告，前 500 字）:\n")
         text = out["analysis_report"]
         print(text[:500] + ("…" if len(text) > 500 else ""))
+
+        sample_reports.append(
+            {
+                "sample_index": i,
+                "id": rec.get("id"),
+                "question": rec.get("question", ""),
+                "answer": rec.get("answer", ""),
+                "image_path": rec.get("image_path", ""),
+                "workflow_output": _to_jsonable_workflow_output(out),
+            }
+        )
+
+    # 运行报告落盘：默认保存到 MEDICAL_MVP_DATA_ROOT/results/。
+    results_dir = config.get_data_root() / "results"
+    results_dir.mkdir(parents=True, exist_ok=True)
+    ts = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+    report_path = results_dir / f"results_{ts}.json"
+    report = {
+        "run_started_at_utc": run_started_at.isoformat(),
+        "run_finished_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "model": config.GEMINI_MODEL_ID,
+        "qa_path": str(qa_path),
+        "n_requested": n,
+        "n_selected": len(chosen),
+        "seed": seed,
+        "samples": sample_reports,
+    }
+    with open(report_path, "w", encoding="utf-8") as f:
+        json.dump(report, f, ensure_ascii=False, indent=2)
+    print(f"\n[report] 运行报告已保存: {report_path}")
 
 
 def main() -> None:
