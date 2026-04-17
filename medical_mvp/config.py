@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 
 # Gemini（google-genai 新 SDK）
-GEMINI_MODEL_ID = "gemini-2.5-pro"
+GEMINI_MODEL_ID = "gemini-2.5-flash"
 
 # 默认从环境变量读取 API Key（Colab 中可 os.environ["GOOGLE_API_KEY"] = "..."）
 GOOGLE_API_KEY_ENV = "GOOGLE_API_KEY"
