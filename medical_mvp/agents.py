@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import mimetypes
 import os
+import random
+import time
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
@@ -111,20 +113,45 @@ class VisionAgent(BaseAgent):
                 prompt,
             ]
 
-        try:
-            response = self._client.models.generate_content(
-                model=config.GEMINI_MODEL_ID,
-                contents=contents,
-            )
-        except Exception as e:
-            msg = str(e).lower()
-            if "leaked" in msg or "permission_denied" in msg or "403" in str(e):
-                raise RuntimeError(
-                    "Gemini 返回 403：该 API 密钥可能被判定为泄露或已失效。"
-                    "请到 https://aistudio.google.com/apikey 删除旧密钥并新建，"
-                    "在 Colab「密钥」中更新 GOOGLE_API_KEY；切勿在聊天、截图或 Git 中粘贴密钥。"
-                ) from e
-            raise
+        # 服务高峰时 Gemini 可能返回 503，使用指数退避 + 抖动自动重试。
+        max_retries = 5
+        base_wait_sec = 2.0
+        response = None
+        last_err: Exception | None = None
+        for attempt in range(1, max_retries + 1):
+            try:
+                response = self._client.models.generate_content(
+                    model=config.GEMINI_MODEL_ID,
+                    contents=contents,
+                )
+                break
+            except Exception as e:
+                last_err = e
+                msg = str(e).lower()
+                if "leaked" in msg or "permission_denied" in msg or "403" in str(e):
+                    raise RuntimeError(
+                        "Gemini 返回 403：该 API 密钥可能被判定为泄露或已失效。"
+                        "请到 https://aistudio.google.com/apikey 删除旧密钥并新建，"
+                        "在 Colab「密钥」中更新 GOOGLE_API_KEY；切勿在聊天、截图或 Git 中粘贴密钥。"
+                    ) from e
+
+                is_503 = ("503" in str(e)) or ("unavailable" in msg)
+                if (not is_503) or attempt == max_retries:
+                    break
+
+                wait = base_wait_sec * (2 ** (attempt - 1)) + random.uniform(0, 0.8)
+                self.trace(
+                    f"Gemini 服务繁忙（503），第 {attempt}/{max_retries} 次重试前等待 {wait:.1f} 秒…"
+                )
+                time.sleep(wait)
+
+        if response is None:
+            assert last_err is not None
+            raise RuntimeError(
+                "Gemini 连续返回服务不可用（503）或其他错误。"
+                "建议稍后重试，或降低并发后再次运行。原始错误: "
+                + repr(last_err)
+            ) from last_err
         text = (response.text or "").strip()
         self.trace("影像推理完成。")
         return text
