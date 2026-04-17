@@ -24,6 +24,16 @@ PMC_VQA_STREAM_SPLIT = "train"  # 与仓库中 train 划分一致；若不存在
 EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 FAISS_TOP_K = 5
 
+# AnalysisAgent（增强版）
+ANALYSIS_TOPK_EVIDENCE = 5
+ANALYSIS_DIFF_TOPK = 3
+
+# RiskAgent（规则 + LLM 复核）
+RISK_RULES_ENABLED = True
+RISK_LLM_ENABLED = True
+# 默认沿用主模型；如需独立模型可改为其他可用 Gemini 模型
+RISK_LLM_MODEL_ID = GEMINI_MODEL_ID
+
 # 目录（可被 data_preparation 中的 set_base_dir 覆盖）
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DATA_ROOT = _PROJECT_ROOT / "data"

@@ -26,8 +26,8 @@ def clinical_workflow(
     调度顺序：
         1. KnowledgeAgent：检索医学参考
         2. VisionAgent：结合图像 + 问题 + 参考完成影像解释
-        3. AnalysisAgent：当前为透传（便于后续替换为综合分析）
-        4. RiskAgent：当前默认通过
+        3. AnalysisAgent：输出综合分析文本 + 结构化结果
+        4. RiskAgent：规则先行 + LLM 复核
 
     Args:
         user_question: 用户临床相关问题。
@@ -46,8 +46,10 @@ def clinical_workflow(
 
     hits = ka.run(user_question)
     vision_report = va.run(user_question, image_path, hits)
-    analysis_report = aa.run(user_question, vision_report)
-    risk = ra.run(analysis_report)
+    analysis_out = aa.run(user_question, vision_report, hits)
+    analysis_report = analysis_out.get("analysis_report", "")
+    analysis_structured = analysis_out.get("analysis_structured", {})
+    risk = ra.run(analysis_report, analysis_structured=analysis_structured)
 
     print("\n========== ClinicalWorkflow 结束 ==========\n")
 
@@ -55,5 +57,6 @@ def clinical_workflow(
         "retrieval_hits": hits,
         "vision_report": vision_report,
         "analysis_report": analysis_report,
+        "analysis_structured": analysis_structured,
         "risk": risk,
     }

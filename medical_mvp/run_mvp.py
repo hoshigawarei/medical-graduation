@@ -42,7 +42,9 @@ def _to_jsonable_workflow_output(out: dict) -> dict:
         "retrieval_hits": hits_json,
         "vision_report": out.get("vision_report", ""),
         "analysis_report": out.get("analysis_report", ""),
+        "analysis_structured": out.get("analysis_structured", {}),
         "risk": out.get("risk", {}),
+        "risk_details": out.get("risk", {}),
     }
 
 
@@ -114,7 +116,7 @@ def run_random_samples(
         out = clinical_workflow(user_question=q, image_path=img)
         print("\n--- 最终输出摘要 ---")
         print("风险评估:", out["risk"])
-        print("分析结论（透传影像报告，前 500 字）:\n")
+        print("综合分析结论（前 500 字）:\n")
         text = out["analysis_report"]
         print(text[:500] + ("…" if len(text) > 500 else ""))
 

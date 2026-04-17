@@ -8,7 +8,7 @@ Project Context
 
 当前阶段目标 (MVP)：搭建完整的代码骨架。仅实现 FAISS 检索和其中 2 个核心智能体的底层逻辑，其余模块使用 Stub (占位符) 预留接口。
 
-模型与数据：使用 google-genai SDK 调用 gemini-2.5-flash；使用 datasets 库流式拉取 xmcmic/PMC-VQA 的前 200 条数据。
+模型与数据：使用 google-genai SDK 调用 gemini-2.5-flash；使用 datasets 库流式拉取 hamzamooraj99/PMC-VQA-1 的前 200 条数据。
 
 Execution Plan (Step-by-Step)
 请严格按阶段生成代码，每完成一个阶段请停下来等我确认。
@@ -34,9 +34,9 @@ KnowledgeAgent (知识检索)：接收指令，调用 Phase 2 的 retrieve_conte
 
 VisionAgent (影像解释)：调用 Gemini API 处理图片和文本。提示词需设定为“你是一个影像解释智能体...”。
 
-AnalysisAgent (医学分析 - Stub)：当前阶段仅作为一个透传接口（Pass-through），直接将用户问题转发给 VisionAgent。预留 TODO：未来负责综合分析。
+AnalysisAgent (医学分析 - 增强版)：融合 Vision 结果与检索证据，输出结构化综合结论，包含鉴别诊断 Top-K、支持证据、冲突证据与下一步建议。
 
-RiskAgent (风险评估 - Stub)：当前阶段始终返回 {"is_safe": True, "reason": "MVP阶段跳过审查"}。预留 TODO：未来负责校验最终输出是否违规。
+RiskAgent (风险评估 - 增强版)：采用“规则先行 + LLM 复核”，返回 risk_level / is_safe / reason / actions，并在命中高风险规则时优先拦截。
 
 Phase 4: 工作流调度中心 (Workflow Controller)
 编写一个 ClinicalWorkflow 函数来模拟诊疗全流程：
@@ -49,9 +49,9 @@ Phase 4: 工作流调度中心 (Workflow Controller)
 
 将资料和图片一起交给 VisionAgent 进行读片推理。
 
-将结果交给 AnalysisAgent (当前直接放行)。
+将结果交给 AnalysisAgent 进行综合分析（输出文本与结构化结论）。
 
-最后交由 RiskAgent 审查 (当前默认通过)。
+最后交由 RiskAgent 审查（规则 + LLM 双层风控）。
 
 在控制台打印出清晰的思维链轨迹 (Trajectory)，用 [Agent Name] 标明当前是哪个智能体在工作。
 
