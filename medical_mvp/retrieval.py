@@ -16,10 +16,14 @@ from typing import Any
 
 import faiss  # type: ignore
 import numpy as np
-from rank_bm25 import BM25Okapi
 from sentence_transformers import SentenceTransformer
 
 from medical_mvp import config
+
+try:
+    from rank_bm25 import BM25Okapi
+except ImportError:
+    BM25Okapi = None  # type: ignore[misc, assignment]
 
 _WORD_RE = re.compile(r"[a-z0-9]+", re.I)
 
@@ -70,7 +74,7 @@ class MedicalRetriever:
         self._model: SentenceTransformer | None = None
         self._index: faiss.Index | None = None
         self._meta: list[dict[str, Any]] = []
-        self._bm25: BM25Okapi | None = None
+        self._bm25: Any = None  # BM25Okapi when rank_bm25 is installed
         self._graph_cache: dict[str, Any] | None = None
 
     @property
@@ -135,6 +139,8 @@ class MedicalRetriever:
     def _ensure_bm25(self) -> None:
         if self._bm25 is not None:
             return
+        if BM25Okapi is None:
+            return
         if not self._meta:
             return
         tokenized_corpus = [_tokenize(self._record_to_text(r)) for r in self._meta]
@@ -168,8 +174,8 @@ class MedicalRetriever:
         return hits
 
     def search_bm25(self, query: str, top_k: int = 5) -> list[RetrievalHit]:
-        """BM25 稀疏检索（与 FAISS 共用 qa 元数据）。"""
-        if not config.HYBRID_ENABLE_BM25:
+        """BM25 稀疏检索（与 FAISS 共用 qa 元数据）。未安装 rank-bm25 时返回空列表。"""
+        if not config.HYBRID_ENABLE_BM25 or BM25Okapi is None:
             return []
         self._ensure_index()
         self._ensure_bm25()
