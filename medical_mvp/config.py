@@ -24,6 +24,14 @@ PMC_VQA_STREAM_SPLIT = "train"  # 与仓库中 train 划分一致；若不存在
 EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 FAISS_TOP_K = 5
 
+# 混合检索：FAISS + BM25（rank_bm25）+ 可选离线知识图谱 JSON
+HYBRID_ENABLE_BM25 = True
+HYBRID_ENABLE_GRAPH = True
+BM25_TOP_K = 10
+GRAPH_TOP_K = 5
+# 倒数排名融合（RRF）常数，常用 60
+RRF_K = 60
+
 # AnalysisAgent（增强版）
 ANALYSIS_TOPK_EVIDENCE = 5
 ANALYSIS_DIFF_TOPK = 3
@@ -58,3 +66,8 @@ def get_faiss_index_path() -> Path:
 
 def get_faiss_meta_path() -> Path:
     return get_data_root() / "faiss_meta.json"
+
+
+def get_knowledge_graph_path() -> Path:
+    """离线图谱 JSON（nodes / edges），默认位于数据根目录。"""
+    return get_data_root() / "knowledge_graph.json"
