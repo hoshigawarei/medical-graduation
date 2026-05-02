@@ -7,7 +7,7 @@
 `mean_rag_token_recall`、`mean_em_rate` 等架构感知指标（见 eval_metrics）。
 
 用法：
-  python -m medical_mvp.eval_e2e --n 3 --seed 42
+  python -m medical_mvp.eval_e2e --n 5 --seed 42
 
 输出：data/results/e2e_eval_时间戳.json
 """
@@ -26,6 +26,7 @@ from typing import Any
 
 from medical_mvp import config
 from medical_mvp.eval_metrics import (
+    attach_extended_metrics,
     exact_match,
     jaccard_overlap,
     pred_text_for_pipeline,
@@ -51,7 +52,7 @@ def _pick_samples(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="端到端检索消融 × workflow 小样本评测")
-    parser.add_argument("--n", type=int, default=3, help="每 variant 样本数（同一批样本复用）")
+    parser.add_argument("--n", type=int, default=5, help="每 variant 样本数（同一批样本复用）")
     parser.add_argument("--seed", type=int, default=42, help="抽样随机种子")
     parser.add_argument(
         "--variants",
@@ -92,9 +93,10 @@ def main() -> None:
         "seed": args.seed,
         "model": config.GEMINI_MODEL_ID,
         "metric_note": (
-            "mean_f1_vs_answer / mean_em_rate：与 gold 对齐时使用 primary_impression（或综合结论回退）。"
-            "mean_jaccard_vs_answer：全文 analysis_report vs gold，体裁不一致时仅供参考。"
-            "mean_rag_token_recall：检索 Top-K 词元出现在该 scoring 文本中的比例。"
+            "主指标建议：mean_bertscore_f1（语义）、mean_entity_token_recall_vs_gold（gold 词出现比例）、"
+            "mean_ddx_covers_gold_rate（鉴别诊断是否覆盖 gold，启发式）。"
+            "legacy：mean_f1_vs_answer / mean_jaccard_vs_answer（字面）。"
+            "mean_rag_token_recall：检索词元出现在 scoring 文本中的比例。"
         ),
         "variants": {},
     }
@@ -154,6 +156,13 @@ def main() -> None:
                         risk_audit_fields(risk if isinstance(risk, dict) else None)
                     )
                     row.update(structured_audit_fields(out))
+                    stru = out.get("analysis_structured")
+                    attach_extended_metrics(
+                        row,
+                        scoring,
+                        gold,
+                        stru if isinstance(stru, dict) else None,
+                    )
                     ok_n += 1
                 except Exception as e:  # noqa: BLE001
                     row["error"] = f"{type(e).__name__}: {e}"
@@ -162,6 +171,11 @@ def main() -> None:
                 runs.append(row)
 
             n = len(samples)
+            bs_vals = [r.get("bertscore_f1") for r in runs if r.get("bertscore_f1") is not None]
+            ent_vals = [r.get("entity_token_recall_vs_gold") for r in runs if r.get("ok")]
+            ddx_eligible = [r for r in runs if r.get("ok") and r.get("ddx_covers_gold") is not None]
+            ddx_hits = sum(1 for r in ddx_eligible if r.get("ddx_covers_gold"))
+
             report["variants"][vname] = {
                 "HYBRID_ENABLE_BM25": config.HYBRID_ENABLE_BM25,
                 "HYBRID_ENABLE_GRAPH": config.HYBRID_ENABLE_GRAPH,
@@ -170,6 +184,11 @@ def main() -> None:
                 "mean_f1_vs_answer": f1_sum / ok_n if ok_n else None,
                 "mean_em_rate": em_hit / ok_n if ok_n else None,
                 "mean_rag_token_recall": rag_sum / rag_cnt if rag_cnt else None,
+                "mean_bertscore_f1": sum(bs_vals) / len(bs_vals) if bs_vals else None,
+                "mean_entity_token_recall_vs_gold": (
+                    sum(float(x) for x in ent_vals if x is not None) / len(ent_vals) if ent_vals else None
+                ),
+                "mean_ddx_covers_gold_rate": (ddx_hits / len(ddx_eligible) if ddx_eligible else None),
                 "runs": runs,
             }
     finally:

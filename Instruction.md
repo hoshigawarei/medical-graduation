@@ -24,7 +24,7 @@ Project Context
 
 
 
-模型与数据：使用 **google-genai** SDK；主模型以 `config.GEMINI_MODEL_ID` 为准（当前为 **gemini-3-flash-preview**，随可用模型可调整）。使用 **datasets** 流式拉取 **hamzamooraj99/PMC-VQA-1**，默认前 **200** 条样本生成 `qa_database.json` 与本地图像目录。
+模型与数据：使用 **google-genai** SDK；主模型以 `config.GEMINI_MODEL_ID` 为准（随 AI Studio 可用模型调整）。使用 **datasets** 流式拉取 **hamzamooraj99/PMC-VQA-1**，默认前 **200** 条样本生成 `qa_database.json` 与本地图像目录。
 
 
 
@@ -74,13 +74,23 @@ Phase 5: 运行测试
 
 
 
-Phase 6: 检索消融与端到端小样本评测（定量）
+Phase 6: 检索消融与端到端评测（定量）
 
-- 检索层（无需 API Key）：`python -m medical_mvp.eval_retrieval --n 100 --seed 42 --top-k 10`  
-  结果写入 `MEDICAL_MVP_DATA_ROOT/results/eval_retrieval_*.json` 与同前缀 `.csv`。
+- **检索层**（无需 API Key）：`python -m medical_mvp.eval_retrieval --n 100 --seed 42 --top-k 10`  
+  结果：`MEDICAL_MVP_DATA_ROOT/results/eval_retrieval_*.json`、`.csv`。检索消融可将 `--n` 提高到 **500～1000**（主要耗时在 CPU，无 Gemini 费用）。
 
-- 端到端（需 `GOOGLE_API_KEY`）：`python -m medical_mvp.eval_e2e --n 10 --seed 42`  
-  结果写入 `results/e2e_eval_*.json`。
+- **离线图谱**：若数据根目录无 `knowledge_graph.json`，图谱一路为空。可从 QA 生成演示图谱：  
+  `python -m medical_mvp.build_knowledge_graph --write`  
+  Schema 见 `medical_mvp/docs/KNOWLEDGE_GRAPH.md`。
+
+- **端到端**（需 `GOOGLE_API_KEY`）：`python -m medical_mvp.eval_e2e --n 5 --seed 42` → `results/e2e_eval_*.json`。  
+  JSON 中 **建议优先报告**：`mean_bertscore_f1`（需安装 `bert-score`）、`mean_entity_token_recall_vs_gold`、`mean_ddx_covers_gold_rate`、`mean_rag_token_recall`；`mean_f1_vs_answer` / `mean_jaccard_vs_answer` 为字面 legacy。端到端扩大样本受 **API RPM/RPD** 限制，论文中应写明协议与局限。
+
+- **单模型 vs 流水线**：`python -m medical_mvp.eval_single_vs_pipeline --n 5 --seed 42 --pipeline-variant Full_hybrid`。
+
+- **LLM-as-Judge（可选）**：`python -m medical_mvp.eval_llm_judge --n 5 --seed 42`，使用同一 Gemini 对结论多维 1～5 分，输出 `results/llm_judge_*.json`。
+
+依赖：`pip install -r requirements.txt`（含 **bert-score**、**torch**；首次 BERTScore 会下载模型）。
 
 
 

@@ -1,7 +1,7 @@
 """
-端到端评测辅助指标：与 gold 的 token F1/EM、检索证据对齐（RAG recall）、流水线结构化字段摘要。
+端到端评测辅助指标：字面 token F1/Jaccard、BERTScore（语义）、实体召回、RAG 对齐、结构化字段（含鉴别诊断 vs gold）。
 
-与 eval_e2e 中的词集 Jaccard 共用同一套拉丁词元规则，便于数值可比。
+BERTScore 需安装 `bert-score`（见 requirements.txt）；未安装时对应字段为 null。
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ from medical_mvp import config
 from medical_mvp.retrieval import RetrievalHit
 
 _WORD = re.compile(r"[a-z0-9]+", re.I)
+_WORD_BOUNDARY = re.compile(r"(?<![a-z0-9])([a-z0-9]+)(?![a-z0-9])", re.I)
 
 
 def normalize_answer(s: str) -> str:
@@ -38,7 +39,7 @@ def jaccard_overlap(pred: str, gold: str) -> float:
 
 
 def token_f1(pred: str, gold: str) -> float:
-    """词袋 F1（多标签计数 overlap / pred len / gold len）。"""
+    """词袋 F1（legacy：字面重叠）。"""
     p, g = tokenize_for_eval(pred), tokenize_for_eval(gold)
     if not p and not g:
         return 1.0
@@ -55,6 +56,41 @@ def token_f1(pred: str, gold: str) -> float:
 
 def exact_match(pred: str, gold: str) -> bool:
     return normalize_answer(pred) == normalize_answer(gold)
+
+
+def bertscore_f1(pred: str, gold: str) -> float | None:
+    """
+    BERTScore F1（语义相似度）。未安装 bert-score 或空文本时返回 None。
+    使用英文默认模型；首次运行会下载权重。
+    """
+    p, g = (pred or "").strip(), (gold or "").strip()
+    if not p or not g:
+        return None
+    try:
+        from bert_score import score as bert_score_fn
+    except ImportError:
+        return None
+    try:
+        _p, _r, f1 = bert_score_fn([p], [g], lang="en", rescale_with_baseline=False)
+        return float(f1.mean().item())
+    except Exception:
+        return None
+
+
+def entity_token_recall_vs_gold(pred: str, gold: str) -> float:
+    """
+    gold 答案中的唯一拉丁词元，有多少以「词边界」出现在 pred 中（集合 recall）。
+    无 gold 词元时视为 1.0。
+    """
+    gtoks = list(dict.fromkeys(tokenize_for_eval(gold)))
+    if not gtoks:
+        return 1.0
+    pred_l = normalize_answer(pred)
+    hit = 0
+    for t in gtoks:
+        if re.search(r"(?<![a-z0-9])" + re.escape(t) + r"(?![a-z0-9])", pred_l):
+            hit += 1
+    return hit / len(gtoks)
 
 
 def pred_text_for_pipeline(workflow_out: dict[str, Any]) -> str:
@@ -125,6 +161,42 @@ def structured_audit_fields(workflow_out: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def ddx_gold_coverage(structured: dict[str, Any] | None, gold: str) -> dict[str, Any]:
+    """
+    鉴别诊断列表是否与参考答案在词级或子串上对齐（演示级启发式，非临床诊断准确率）。
+    """
+    out: dict[str, Any] = {
+        "ddx_covers_gold": False,
+        "ddx_gold_match_type": None,
+    }
+    if not isinstance(structured, dict):
+        return out
+    g_norm = normalize_answer(gold)
+    gtoks = set(tokenize_for_eval(gold))
+    if not g_norm and not gtoks:
+        return out
+
+    for item in structured.get("differential_diagnoses") or []:
+        if not isinstance(item, dict):
+            continue
+        blob = f"{item.get('name', '')} {item.get('reason', '')}"
+        n_norm = normalize_answer(blob)
+        nt = set(tokenize_for_eval(blob))
+        if gtoks and (gtoks & nt):
+            out["ddx_covers_gold"] = True
+            out["ddx_gold_match_type"] = "token_overlap"
+            return out
+        if len(g_norm) >= 3 and g_norm in n_norm:
+            out["ddx_covers_gold"] = True
+            out["ddx_gold_match_type"] = "substring"
+            return out
+        if len(g_norm) >= 3 and any(g_norm in normalize_answer(str(item.get(k, ""))) for k in ("name", "reason")):
+            out["ddx_covers_gold"] = True
+            out["ddx_gold_match_type"] = "substring_field"
+            return out
+    return out
+
+
 def risk_audit_fields(risk: dict[str, Any] | None) -> dict[str, Any]:
     """风控输出摘要。"""
     if not isinstance(risk, dict):
@@ -135,3 +207,19 @@ def risk_audit_fields(risk: dict[str, Any] | None) -> dict[str, Any]:
         "risk_level": risk.get("risk_level"),
         "rule_hits_n": n,
     }
+
+
+def attach_extended_metrics(
+    row: dict[str, Any],
+    scoring: str,
+    gold: str,
+    structured: dict[str, Any] | None,
+) -> None:
+    """写入 BERTScore、实体召回、ddx vs gold（流水线传入 structured）。"""
+    row["bertscore_f1"] = bertscore_f1(scoring, gold)
+    row["entity_token_recall_vs_gold"] = entity_token_recall_vs_gold(scoring, gold)
+    if structured is not None:
+        row.update(ddx_gold_coverage(structured, gold))
+    else:
+        row["ddx_covers_gold"] = None
+        row["ddx_gold_match_type"] = None

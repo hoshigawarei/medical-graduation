@@ -7,7 +7,7 @@
 评价：除 legacy 全文 Jaccard 外，主要报告与 gold 的 token F1/EM；流水线另报告 RAG 对齐与结构化/风控元数据（见 eval_metrics）。
 
 用法：
-  python -m medical_mvp.eval_single_vs_pipeline --n 3 --seed 42 --pipeline-variant Full_hybrid
+  python -m medical_mvp.eval_single_vs_pipeline --n 5 --seed 42 --pipeline-variant Full_hybrid
 
 输出：data/results/single_vs_pipeline_时间戳.json
 """
@@ -26,6 +26,7 @@ from typing import Any
 from medical_mvp import config
 from medical_mvp.eval_e2e import _pick_samples
 from medical_mvp.eval_metrics import (
+    attach_extended_metrics,
     exact_match,
     jaccard_overlap,
     pred_text_for_pipeline,
@@ -42,6 +43,24 @@ from medical_mvp.eval_retrieval import (
     _save_config_state,
 )
 from medical_mvp.workflow import clinical_workflow, single_model_answer
+
+
+def _summarize_extended_metrics(runs: list[dict[str, Any]]) -> dict[str, Any]:
+    bs = [r.get("bertscore_f1") for r in runs if r.get("bertscore_f1") is not None]
+    ent_ok = [
+        r.get("entity_token_recall_vs_gold")
+        for r in runs
+        if r.get("ok") and r.get("entity_token_recall_vs_gold") is not None
+    ]
+    ddx_eligible = [r for r in runs if r.get("ok") and r.get("ddx_covers_gold") is not None]
+    ddx_hits = sum(1 for r in ddx_eligible if r.get("ddx_covers_gold"))
+    return {
+        "mean_bertscore_f1": (sum(bs) / len(bs)) if bs else None,
+        "mean_entity_token_recall_vs_gold": (
+            sum(float(x) for x in ent_ok) / len(ent_ok) if ent_ok else None
+        ),
+        "mean_ddx_covers_gold_rate": (ddx_hits / len(ddx_eligible) if ddx_eligible else None),
+    }
 
 
 def _run_mode(
@@ -106,6 +125,11 @@ def _run_mode(
             row["em_vs_answer"] = em
             if em:
                 em_n += 1
+            stru = None
+            if mode == "pipeline":
+                _st = out.get("analysis_structured")
+                stru = _st if isinstance(_st, dict) else None
+            attach_extended_metrics(row, scoring, gold, stru)
             ok_n += 1
         except Exception as e:  # noqa: BLE001
             row["error"] = f"{type(e).__name__}: {e}"
@@ -120,7 +144,7 @@ def _run_mode(
     mean_f1 = f1_sum / ok_n if ok_n else None
     mean_rag = rag_sum / rag_n if rag_n else None
     success = ok_n / n if n else 0.0
-    return {
+    out_metrics = {
         "success_rate": success,
         "mean_jaccard_vs_answer": mean_j,
         "mean_f1_vs_answer": mean_f1,
@@ -128,13 +152,15 @@ def _run_mode(
         "mean_rag_token_recall": mean_rag if mode == "pipeline" else None,
         "runs": runs,
     }
+    out_metrics.update(_summarize_extended_metrics(runs))
+    return out_metrics
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="单模型一次生成 vs 多智能体流水线（固定检索 variant）",
     )
-    parser.add_argument("--n", type=int, default=3, help="抽样条数")
+    parser.add_argument("--n", type=int, default=5, help="抽样条数")
     parser.add_argument("--seed", type=int, default=42, help="随机种子")
     parser.add_argument(
         "--pipeline-variant",
@@ -173,10 +199,9 @@ def main() -> None:
         "comparison": "single_model_vs_pipeline",
         "model": config.GEMINI_MODEL_ID,
         "metric_note": (
-            "优先解读 mean_f1_vs_answer / mean_em_rate：与参考答案的词级 F1 及完全匹配率；"
-            "流水线侧 scoring 文本为 primary_impression（或综合结论回退），单模型侧为全文。"
-            "mean_rag_token_recall：检索 Top-K 词元出现在该 scoring 文本中的比例（仅流水线）。"
-            "mean_jaccard_vs_answer：legacy，流水线为全文分析报告 vs gold，体裁与 short gold 不一致时偏低常见。"
+            "优先解读 mean_bertscore_f1（语义）、mean_entity_token_recall_vs_gold、mean_ddx_covers_gold_rate（流水线）；"
+            "legacy：mean_f1_vs_answer / mean_jaccard_vs_answer。"
+            "mean_rag_token_recall 仅流水线。"
         ),
         "qa_path": str(qa_path),
         "n_requested": args.n,
