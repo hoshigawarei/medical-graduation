@@ -3,6 +3,9 @@
 
 依赖环境变量 GOOGLE_API_KEY（google-genai）。成本随样本数线性增长，默认小样本。
 
+除 legacy `mean_jaccard_vs_answer`（全文报告 vs gold）外，报告 `mean_f1_vs_answer`（综合结论短文本 vs gold）、
+`mean_rag_token_recall`、`mean_em_rate` 等架构感知指标（见 eval_metrics）。
+
 用法：
   python -m medical_mvp.eval_e2e --n 3 --seed 42
 
@@ -16,31 +19,23 @@ import datetime as dt
 import json
 import os
 import random
-import re
 import sys
 import traceback
 from pathlib import Path
 from typing import Any
 
 from medical_mvp import config
+from medical_mvp.eval_metrics import (
+    exact_match,
+    jaccard_overlap,
+    pred_text_for_pipeline,
+    rag_token_recall,
+    risk_audit_fields,
+    structured_audit_fields,
+    token_f1,
+)
 from medical_mvp.eval_retrieval import VARIANT_PRESETS, _apply_variant, _restore_config_state, _save_config_state
 from medical_mvp.workflow import clinical_workflow
-
-_WORD = re.compile(r"[a-z0-9]+", re.I)
-
-
-def _tokens(s: str) -> set[str]:
-    return set(_WORD.findall((s or "").lower()))
-
-
-def jaccard_overlap(pred: str, gold: str) -> float:
-    """词集合 Jaccard，用于粗粒度文本重合（非 ROUGE）。"""
-    a, b = _tokens(pred), _tokens(gold)
-    if not a and not b:
-        return 1.0
-    if not a or not b:
-        return 0.0
-    return len(a & b) / len(a | b)
 
 
 def _pick_samples(
@@ -96,6 +91,11 @@ def main() -> None:
         "n_samples": len(samples),
         "seed": args.seed,
         "model": config.GEMINI_MODEL_ID,
+        "metric_note": (
+            "mean_f1_vs_answer / mean_em_rate：与 gold 对齐时使用 primary_impression（或综合结论回退）。"
+            "mean_jaccard_vs_answer：全文 analysis_report vs gold，体裁不一致时仅供参考。"
+            "mean_rag_token_recall：检索 Top-K 词元出现在该 scoring 文本中的比例。"
+        ),
         "variants": {},
     }
 
@@ -108,6 +108,10 @@ def main() -> None:
             runs: list[dict[str, Any]] = []
             ok_n = 0
             jac_sum = 0.0
+            f1_sum = 0.0
+            rag_sum = 0.0
+            rag_cnt = 0
+            em_hit = 0
 
             for rec in samples:
                 q = str(rec.get("question", ""))
@@ -117,21 +121,40 @@ def main() -> None:
                 row: dict[str, Any] = {
                     "id": rid,
                     "question": q[:200],
+                    "scoring_text": "primary_impression_or_conclusion",
                     "ok": False,
                     "error": None,
                     "jaccard_vs_answer": None,
+                    "f1_vs_answer": None,
+                    "em_vs_answer": None,
+                    "rag_token_recall": None,
                     "analysis_report_len": None,
                 }
                 try:
                     out = clinical_workflow(user_question=q, image_path=img)
                     analysis = str(out.get("analysis_report", "") or "")
+                    scoring = pred_text_for_pipeline(out)
                     row["ok"] = True
                     row["analysis_report_len"] = len(analysis)
-                    jac = jaccard_overlap(analysis, gold)
-                    row["jaccard_vs_answer"] = jac
-                    jac_sum += jac
+                    row["jaccard_vs_answer"] = jaccard_overlap(analysis, gold)
+                    jac_sum += row["jaccard_vs_answer"]
+                    row["f1_vs_answer"] = token_f1(scoring, gold)
+                    f1_sum += row["f1_vs_answer"]
+                    row["em_vs_answer"] = exact_match(scoring, gold)
+                    if row["em_vs_answer"]:
+                        em_hit += 1
+                    hits = list(out.get("retrieval_hits") or [])
+                    rr = rag_token_recall(scoring, hits)
+                    row["rag_token_recall"] = rr
+                    if rr is not None:
+                        rag_sum += rr
+                        rag_cnt += 1
+                    risk = out.get("risk")
+                    row.update(
+                        risk_audit_fields(risk if isinstance(risk, dict) else None)
+                    )
+                    row.update(structured_audit_fields(out))
                     ok_n += 1
-                    row["risk_level"] = (out.get("risk") or {}).get("risk_level")
                 except Exception as e:  # noqa: BLE001
                     row["error"] = f"{type(e).__name__}: {e}"
                     row["traceback"] = traceback.format_exc()
@@ -144,6 +167,9 @@ def main() -> None:
                 "HYBRID_ENABLE_GRAPH": config.HYBRID_ENABLE_GRAPH,
                 "success_rate": ok_n / n if n else 0.0,
                 "mean_jaccard_vs_answer": jac_sum / ok_n if ok_n else None,
+                "mean_f1_vs_answer": f1_sum / ok_n if ok_n else None,
+                "mean_em_rate": em_hit / ok_n if ok_n else None,
+                "mean_rag_token_recall": rag_sum / rag_cnt if rag_cnt else None,
                 "runs": runs,
             }
     finally:
