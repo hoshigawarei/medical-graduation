@@ -38,9 +38,10 @@ def single_model_answer(user_question: str, image_path: str) -> str:
         )
     client = genai.Client(api_key=key)
     prompt = (
-        "你是医学影像辅助问答助手。请结合图像与用户问题，用中文给出简明、谨慎的回答；"
-        "若证据不足请说明局限性，避免替代执业医师结论。\n\n"
-        f"【用户问题】\n{user_question.strip()}"
+        "You are a medical imaging assistant. Answer the user's question using the image; "
+        "be concise and cautious, in **English only**. State limitations if evidence is insufficient; "
+        "do not replace a treating physician.\n\n"
+        f"[User question]\n{user_question.strip()}"
     )
     path = Path(image_path)
     if path.is_file():
@@ -55,7 +56,7 @@ def single_model_answer(user_question: str, image_path: str) -> str:
     else:
         contents = [
             prompt
-            + "\n\n（注意：当前未提供有效本地图像文件，请仅基于问题做一般性说明。）"
+            + "\n\n(Note: no valid local image path; give only general guidance from the question.)"
         ]
     before_gemini_request()
     response = client.models.generate_content(

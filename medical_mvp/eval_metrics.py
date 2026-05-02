@@ -67,6 +67,14 @@ def pred_text_for_pipeline(workflow_out: dict[str, Any]) -> str:
         if isinstance(pi, str) and pi.strip():
             return pi.strip()
     report = str(workflow_out.get("analysis_report") or "")
+    if "Primary impression" in report:
+        tail = report.split("Primary impression", 1)[1].lstrip("\r\n :")
+        if "\n\nOverall confidence" in tail:
+            chunk = tail.split("\n\nOverall confidence", 1)[0].strip()
+        else:
+            chunk = tail.split("\n\n", 1)[0].strip()
+        if chunk:
+            return chunk[:4000]
     if "【综合结论】" in report:
         tail = report.split("【综合结论】", 1)[1]
         chunk = tail.split("\n\n【", 1)[0].strip()
