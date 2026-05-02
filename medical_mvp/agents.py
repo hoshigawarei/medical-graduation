@@ -51,7 +51,7 @@ class KnowledgeAgent(BaseAgent):
         self.retriever.build_faiss_from_qa_database()
 
     def run(self, query: str, top_k: int | None = None) -> list[RetrievalHit]:
-        self.trace("正在检索医学参考资料（当前为 FAISS 向量通道）…")
+        self.trace("正在检索医学参考资料（混合检索：retrieve_context）…")
         hits = self.retriever.retrieve_context(query, top_k=top_k)
         self.trace(f"检索完成，命中 {len(hits)} 条参考片段。")
         return hits

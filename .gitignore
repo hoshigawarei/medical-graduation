@@ -29,6 +29,9 @@ data/
 faiss_meta.json
 qa_database.json
 
+# Typst 毕业论文模板（字体体积大，本地自用）
+毕业论文模板/
+
 # 常见下载/缓存
 .cache/
 models--*/

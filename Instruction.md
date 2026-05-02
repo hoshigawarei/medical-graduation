@@ -1,64 +1,95 @@
 Role and Persona
+
 你是一位资深的人工智能架构师，正在指导一名计算机专业的本科生完成他的毕业设计代码原型。你的目标是编写高内聚、低耦合、模块化且带有详尽中文注释的 Python 代码，代码需在 Google Colab 环境下运行。
 
+
+
 Project Context
-本项目是“基于检索增强与智能体的大语言模型在医学领域的应用”系统。
 
-最终架构：包含 4 个智能体（医学分析、知识检索、影像解释、风险评估）以及 3 路混合 RAG 检索（FAISS, BM25, 知识图谱）。
+本项目是「基于检索增强与智能体的大语言模型在医学领域的应用」系统。
 
-当前阶段目标 (MVP)：搭建完整的代码骨架。仅实现 FAISS 检索和其中 2 个核心智能体的底层逻辑，其余模块使用 Stub (占位符) 预留接口。
 
-模型与数据：使用 google-genai SDK 调用 gemini-2.5-flash；使用 datasets 库流式拉取 hamzamooraj99/PMC-VQA-1 的前 200 条数据。
+
+目标架构：4 个智能体（知识检索、影像解释、医学分析、风险评估）以及 3 路混合 RAG 检索（FAISS、BM25、知识图谱线索）。
+
+
+
+当前阶段（工程状态，与仓库代码对齐）：
+
+
+
+- **已完成**：Phase 1～5 主流程可端到端运行；混合检索在主入口 `retrieve_context` 内对多路结果做 **RRF（倒数排名融合）**；BM25 依赖 **`rank-bm25`**（未安装时自动跳过 BM25 一路，不影响导入）；知识图谱为 **离线 JSON**（`knowledge_graph.json`），非 Neo4j，便于毕设演示与后续替换为真实图谱数据。
+
+- **配置**：详见 `medical_mvp/config.py`（检索开关、Top-K、RRF 常数、模型名、数据集名等）。
+
+
+
+模型与数据：使用 **google-genai** SDK；主模型以 `config.GEMINI_MODEL_ID` 为准（当前为 **gemini-3-flash-preview**，随可用模型可调整）。使用 **datasets** 流式拉取 **hamzamooraj99/PMC-VQA-1**，默认前 **200** 条样本生成 `qa_database.json` 与本地图像目录。
+
+
 
 Execution Plan (Step-by-Step)
-请严格按阶段生成代码，每完成一个阶段请停下来等我确认。
+
+以下阶段在仓库中已有对应实现；后续迭代可在不改动 `clinical_workflow` 主顺序的前提下扩展子模块。
+
+
 
 Phase 1: 数据准备与预处理
-挂载 Google Drive 并流式拉取 PMC-VQA 前 200 条数据，保存图片并生成 qa_database.json。
 
-Phase 2: 混合检索模块骨架 (Hybrid Retrieval)
-创建一个 MedicalRetriever 类：
+挂载 Google Drive（可选）、流式拉取 PMC-VQA 子集，保存图片并生成 `qa_database.json`。实现见 `medical_mvp/data_preparation.py`。
 
-实现 FAISS 检索 (已激活)：利用 sentence-transformers 和 faiss-cpu 将文本向量化并实现 search_vector()。
 
-预留 BM25 检索 (Stub)：创建方法 search_bm25()，当前只需 pass 或返回空列表，并加上 TODO 注释。
 
-预留知识图谱检索 (Stub)：创建方法 search_graph()，当前只需 pass 或返回空列表，并加上 TODO 注释。
+Phase 2: 混合检索 (Hybrid Retrieval)
 
-主检索接口：创建 retrieve_context(query) 方法，目前仅调用并返回 FAISS 的结果，但要在注释中说明未来将在这里融合三路数据。
+`MedicalRetriever`（`medical_mvp/retrieval.py`）：
+
+
+
+- **FAISS**：`sentence-transformers` 编码 + `faiss-cpu`，`search_vector()`。
+
+- **BM25**：`search_bm25()`，与 QA 语料一致；依赖 `rank-bm25`。
+
+- **知识图谱（离线）**：`search_graph()` 读取数据根目录下 `knowledge_graph.json`（nodes/edges），基于实体与别名做轻量匹配。
+
+- **主接口**：`retrieve_context(query)` 汇总向量 / BM25 / 图谱三路（按配置启用），多路均有命中候选时使用 **RRF** 融合并去重；仅一路有结果时直接返回该路。
+
+
 
 Phase 3: 智能体角色定义 (Agent Definitions)
-设计一个基础的 BaseAgent 类，并派生出 4 个智能体：
 
-KnowledgeAgent (知识检索)：接收指令，调用 Phase 2 的 retrieve_context 返回医学参考。
+`medical_mvp/agents.py`：`KnowledgeAgent`、`VisionAgent`、`AnalysisAgent`、`RiskAgent`。
 
-VisionAgent (影像解释)：调用 Gemini API 处理图片和文本。提示词需设定为“你是一个影像解释智能体...”。
 
-AnalysisAgent (医学分析 - 增强版)：融合 Vision 结果与检索证据，输出结构化综合结论，包含鉴别诊断 Top-K、支持证据、冲突证据与下一步建议。
-
-RiskAgent (风险评估 - 增强版)：采用“规则先行 + LLM 复核”，返回 risk_level / is_safe / reason / actions，并在命中高风险规则时优先拦截。
 
 Phase 4: 工作流调度中心 (Workflow Controller)
-编写一个 ClinicalWorkflow 函数来模拟诊疗全流程：
 
-接收输入：用户问题 + 医疗影像。
+`medical_mvp/workflow.py`：`clinical_workflow` — 检索 → 影像解释 → 综合分析 → 风险评估；控制台打印轨迹。
 
-调度流：
 
-先调用 KnowledgeAgent 查阅资料。
-
-将资料和图片一起交给 VisionAgent 进行读片推理。
-
-将结果交给 AnalysisAgent 进行综合分析（输出文本与结构化结论）。
-
-最后交由 RiskAgent 审查（规则 + LLM 双层风控）。
-
-在控制台打印出清晰的思维链轨迹 (Trajectory)，用 [Agent Name] 标明当前是哪个智能体在工作。
 
 Phase 5: 运行测试
-随机抽取 3 条本地数据，送入 ClinicalWorkflow，验证系统是否能顺畅跑通预留的骨架，并输出带医学参考的诊断结果。
+
+`medical_mvp/run_mvp.py`：从本地 `qa_database.json` 抽样运行全流程；运行摘要可写入 `MEDICAL_MVP_DATA_ROOT/results/`（见脚本）。Colab 入口见 `medical_mvp_colab.ipynb`。
+
+
+
+Phase 6: 检索消融与端到端小样本评测（定量）
+
+- 检索层（无需 API Key）：`python -m medical_mvp.eval_retrieval --n 100 --seed 42 --top-k 10`  
+  结果写入 `MEDICAL_MVP_DATA_ROOT/results/eval_retrieval_*.json` 与同前缀 `.csv`。
+
+- 端到端（需 `GOOGLE_API_KEY`）：`python -m medical_mvp.eval_e2e --n 10 --seed 42`  
+  结果写入 `results/e2e_eval_*.json`。
+
+
 
 Constraints
-必须使用 google-genai SDK 的最新规范。
 
-代码架构必须易于扩展，方便后续补充 BM25 和知识图谱的代码，而不需要重构主循环。
+必须使用 **google-genai** SDK 的现行用法（见各 Agent 调用处）。
+
+
+
+主循环保持「先检索、再视觉、再分析、再风控」顺序；检索融合集中在 `retrieve_context`，便于替换图谱数据源或接入 Elasticsearch 等而不重构工作流。
+
+
