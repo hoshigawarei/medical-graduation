@@ -21,6 +21,7 @@ from google import genai
 from google.genai import types
 
 from medical_mvp import config
+from medical_mvp.gemini_throttle import before_gemini_request
 from medical_mvp.retrieval import MedicalRetriever, RetrievalHit
 
 
@@ -122,6 +123,7 @@ class VisionAgent(BaseAgent):
         last_err: Exception | None = None
         for attempt in range(1, max_retries + 1):
             try:
+                before_gemini_request()
                 response = self._client.models.generate_content(
                     model=config.GEMINI_MODEL_ID,
                     contents=contents,
@@ -240,6 +242,7 @@ class AnalysisAgent(BaseAgent):
 3) 若证据冲突，请在 conflicts 明确写出；
 4) 不得编造未提供的检查结果。
 """
+        before_gemini_request()
         response = self._client.models.generate_content(
             model=config.GEMINI_MODEL_ID,
             contents=[prompt],
@@ -357,6 +360,7 @@ class RiskAgent(BaseAgent):
 }}
 """
             try:
+                before_gemini_request()
                 resp = self._client.models.generate_content(
                     model=config.RISK_LLM_MODEL_ID,
                     contents=[prompt],

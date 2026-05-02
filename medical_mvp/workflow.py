@@ -3,13 +3,66 @@ Phase 4: 工作流调度中心 (Workflow Controller)
 
 ClinicalWorkflow 串联多智能体，模拟「查资料 → 读片 → 分析 → 风控」的诊疗辅助流程，
 并在控制台打印清晰思维链轨迹。
+
+另提供 `single_model_answer`：同一多模态模型单次生成，用作与流水线对照的基线。
 """
 
 from __future__ import annotations
 
+import mimetypes
+import os
+from pathlib import Path
 from typing import Any
 
+from google import genai
+from google.genai import types
+
+from medical_mvp import config
 from medical_mvp.agents import AnalysisAgent, KnowledgeAgent, RiskAgent, VisionAgent
+from medical_mvp.gemini_throttle import before_gemini_request
+
+
+def single_model_answer(user_question: str, image_path: str) -> str:
+    """
+    单模型基线：不经检索与多智能体阶段，使用 `GEMINI_MODEL_ID` 调用一次多模态生成。
+
+    与 `clinical_workflow` 使用同一主模型，便于在固定数据集上用同一指标（如与参考答案的
+    词重叠）对比「一次作答」与「RAG + 多阶段 Agent」的差异。
+
+    若本地图像路径不存在，则退化为仅文本提示（与 VisionAgent 行为一致）。
+    """
+    key = os.environ.get(config.GOOGLE_API_KEY_ENV)
+    if not key:
+        raise RuntimeError(
+            f"未找到 API Key，请在环境变量 {config.GOOGLE_API_KEY_ENV} 中配置 GOOGLE_API_KEY。"
+        )
+    client = genai.Client(api_key=key)
+    prompt = (
+        "你是医学影像辅助问答助手。请结合图像与用户问题，用中文给出简明、谨慎的回答；"
+        "若证据不足请说明局限性，避免替代执业医师结论。\n\n"
+        f"【用户问题】\n{user_question.strip()}"
+    )
+    path = Path(image_path)
+    if path.is_file():
+        data = path.read_bytes()
+        mime, _ = mimetypes.guess_type(str(path))
+        if not mime or not mime.startswith("image/"):
+            mime = "image/jpeg"
+        contents: list[Any] = [
+            types.Part.from_bytes(data=data, mime_type=mime),
+            prompt,
+        ]
+    else:
+        contents = [
+            prompt
+            + "\n\n（注意：当前未提供有效本地图像文件，请仅基于问题做一般性说明。）"
+        ]
+    before_gemini_request()
+    response = client.models.generate_content(
+        model=config.GEMINI_MODEL_ID,
+        contents=contents,
+    )
+    return (response.text or "").strip()
 
 
 def clinical_workflow(

@@ -10,6 +10,9 @@ from pathlib import Path
 
 # Gemini（google-genai 新 SDK）
 GEMINI_MODEL_ID = "gemini-3.1-flash-lite-preview"
+# 全局限流：相邻两次 generate_content 的最小间隔 ≈ 60/该值 秒，用于压低 Peak RPM（0=不限制）
+# 环境变量 MEDICAL_MVP_GEMINI_MAX_RPM 可覆盖；免费层请对照 AI Studio 额度调低
+GEMINI_MAX_RPM = 15
 
 # 默认从环境变量读取 API Key（Colab 中可 os.environ["GOOGLE_API_KEY"] = "..."）
 GOOGLE_API_KEY_ENV = "GOOGLE_API_KEY"
