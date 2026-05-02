@@ -4,7 +4,7 @@
 依赖环境变量 GOOGLE_API_KEY（google-genai）。成本随样本数线性增长，默认小样本。
 
 用法：
-  python -m medical_mvp.eval_e2e --n 10 --seed 42
+  python -m medical_mvp.eval_e2e --n 3 --seed 42
 
 输出：data/results/e2e_eval_时间戳.json
 """
@@ -56,7 +56,7 @@ def _pick_samples(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="端到端检索消融 × workflow 小样本评测")
-    parser.add_argument("--n", type=int, default=10, help="每 variant 样本数（同一批样本复用）")
+    parser.add_argument("--n", type=int, default=3, help="每 variant 样本数（同一批样本复用）")
     parser.add_argument("--seed", type=int, default=42, help="抽样随机种子")
     parser.add_argument(
         "--variants",
